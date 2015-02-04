@@ -59,7 +59,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	if (memcmp(pbLibraryFileData, IMAGE_ARCHIVE_START, IMAGE_ARCHIVE_START_SIZE) != 0)
 	{
-		perror("Not a lib file.\n");
+		_tperror(_T("Not a lib file.\n"));
 		return 0;
 	}
 
@@ -75,8 +75,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
-		ulSymbolCount = (unsigned)REVERSELONG(*(DWORD*)pbMemberContent);
-		pulSymbolOffsetArray = (DWORD*)(pbMemberContent + 4);
+		ulSymbolCount = (unsigned)REVERSELONG(*(unsigned long*)pbMemberContent);
+		pulSymbolOffsetArray = (unsigned long*)(pbMemberContent + 4);
 	}
 	//Skip Second Linker Member
 	{
@@ -148,7 +148,7 @@ int _tmain(int argc, _TCHAR* argv[])
 					iOptionToRemove++)
 				{
 					auto nOptionLength = iOptionToRemove->length();
-					if (nOptionLength >(pSectionTable[j].SizeOfRawData - k))
+					if (nOptionLength > (pSectionTable[j].SizeOfRawData - k))
 						continue;
 
 					if (_strnicmp(&pszLinkerOptions[k],
