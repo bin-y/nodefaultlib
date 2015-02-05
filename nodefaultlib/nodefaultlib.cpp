@@ -81,7 +81,6 @@ int _tmain(int argc, _TCHAR* argv[])
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
 			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
 		PBYTE pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
-		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 
 		pszLongnames = (char *)pbMemberContent;
 	}
@@ -184,7 +183,6 @@ BOOL MoveToNextMember(const BYTE* pbArchiveBase, const ULONGLONG& ullArchiveSize
 	//Skip current member
 	PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
 		(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbArchiveBase + ullOffset);
-	const BYTE * pbMemberContent = pbArchiveBase + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 	unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 	ullOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
