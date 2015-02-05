@@ -11,6 +11,7 @@ using std::string;
 
 #define REVERSEWORD(w)MAKEWORD(HIBYTE(w), LOBYTE(w))
 #define REVERSELONG(l)MAKELONG(REVERSEWORD(HIWORD(l)), REVERSEWORD(LOWORD(l)))
+#define ARCHIVE_PAD (IMAGE_ARCHIVE_PAD[0])
 
 static const char* const ppszDefaultLibraryNames[] =
 {
@@ -78,6 +79,11 @@ int _tmain(int argc, _TCHAR* argv[])
 		ulSymbolCount = (unsigned)REVERSELONG(*(unsigned long*)pbMemberContent);
 		pulSymbolOffsetArray = (unsigned long*)(pbMemberContent + 4);
 	}
+
+	//Skip padding
+	if (pbLibraryFileData[uiOffset] == ARCHIVE_PAD)
+		uiOffset++;
+
 	//Skip Second Linker Member
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
@@ -86,6 +92,10 @@ int _tmain(int argc, _TCHAR* argv[])
 		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 	}
+
+	//Skip padding
+	if (pbLibraryFileData[uiOffset] == ARCHIVE_PAD)
+		uiOffset++;
 
 	//Process Longnames Member
 	{
