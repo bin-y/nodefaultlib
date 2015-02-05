@@ -9,8 +9,6 @@
 using std::vector;
 using std::string;
 
-#define REVERSEWORD(w)MAKEWORD(HIBYTE(w), LOBYTE(w))
-#define REVERSELONG(l)MAKELONG(REVERSEWORD(HIWORD(l)), REVERSEWORD(LOWORD(l)))
 #define ARCHIVE_PAD (IMAGE_ARCHIVE_PAD[0])
 
 static const char* const ppszDefaultLibraryNames[] =
@@ -25,7 +23,8 @@ static const char* const ppszDefaultLibraryNames[] =
 
 #define DEFAULT_LIBRARY_NAME_NUM (sizeof(ppszDefaultLibraryNames) / sizeof(const char*))
 
-static void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, const vector<string>&vLinkerOptionToRemove);
+static void RemoveLinkerOptionFromCoff(BYTE* pbCoffData, const vector<string>& vLinkerOptionToRemove);
+static BOOL MoveToNextMember(const BYTE* pbArchiveBase, const ULONGLONG& ullArchiveSize, ULONGLONG& ullOffset);
 
 int _tmain(int argc, _TCHAR* argv[])
 {
@@ -41,7 +40,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	CAtlFileMappingBase TargetFileMap;
 	TargetFileMap.MapFile(TargetFile, 0, 0, PAGE_READWRITE, FILE_MAP_READ | FILE_MAP_WRITE);
 	BYTE *pbFileData = (BYTE *)TargetFileMap.GetData();
-
+	
 	vector<string> vLinkerOptionToRemove;
 
 	for (int i = 0; i < DEFAULT_LIBRARY_NAME_NUM; i++)
@@ -67,62 +66,32 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 0;
 	}
 
-	unsigned __int64 uiOffset = IMAGE_ARCHIVE_START_SIZE;
-	unsigned long ulSymbolCount;
-	unsigned long* pulSymbolOffsetArray;
+	ULONGLONG ullArchiveFileSize = 0;
+	TargetFile.GetSize(ullArchiveFileSize);
+
+	ULONGLONG ullOffset = IMAGE_ARCHIVE_START_SIZE;
 	char *pszLongnames;
-	//Process First Linker Member
-	{
-		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + uiOffset);
-		PBYTE pbMemberContent = pbFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
-		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
-		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
-
-		ulSymbolCount = (unsigned)REVERSELONG(*(unsigned long*)pbMemberContent);
-		pulSymbolOffsetArray = (unsigned long*)(pbMemberContent + 4);
-	}
-
-	//Skip padding
-	if (pbFileData[uiOffset] == ARCHIVE_PAD)
-		uiOffset++;
-
+	//Skip First Linker Member
+	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
 	//Skip Second Linker Member
-	{
-		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + uiOffset);
-		PBYTE pbMemberContent = pbFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
-		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
-		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
-	}
-
-	//Skip padding
-	if (pbFileData[uiOffset] == ARCHIVE_PAD)
-		uiOffset++;
+	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
 
 	//Process Longnames Member
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + uiOffset);
-		PBYTE pbMemberContent = pbFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
+		PBYTE pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
-		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		pszLongnames = (char *)pbMemberContent;
 	}
 
 	//Process OBJ files
-	unsigned long ulLastCoffOffset = 0;
-	for (unsigned long i = 0; i < ulSymbolCount; i++)
+	while (MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset))
 	{
-		unsigned long ulCoffOffset = (unsigned)REVERSELONG(pulSymbolOffsetArray[i]);
-		if (ulLastCoffOffset == ulCoffOffset)
-			continue;
-		ulLastCoffOffset = ulCoffOffset;
-
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ulCoffOffset);
-		PBYTE pbMemberContent = pbFileData + ulCoffOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
+		PBYTE pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		//Print OBJ file name
 		if (pMemberHeader->Name[0] == '/')
@@ -137,12 +106,16 @@ int _tmain(int argc, _TCHAR* argv[])
 			printf("%.*s\n", pszEndOfName - (char*)pMemberHeader->Name, pMemberHeader->Name);
 		}
 		RemoveLinkerOptionFromCoff(pbMemberContent, vLinkerOptionToRemove);
+
+		//Skip padding
+		if (pbFileData[ullOffset] == ARCHIVE_PAD)
+			ullOffset++;
 	}
 
 	return 0;
 }
 
-void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, const vector<string>&vLinkerOptionToRemove)
+void RemoveLinkerOptionFromCoff(BYTE* pbCoffData, const vector<string>& vLinkerOptionToRemove)
 {
 	PIMAGE_FILE_HEADER pCoffHeader = (PIMAGE_FILE_HEADER)pbCoffData;
 	PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbCoffData + sizeof(IMAGE_FILE_HEADER));
@@ -154,7 +127,7 @@ void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, const vector<string>&vLinkerOp
 	for (WORD i = 0; i < pCoffHeader->NumberOfSections; i++)
 	{
 		//Find .drectve section
-		if (strcmp(".drectve", (char*)pSectionTable[i].Name) != 0)
+		if (strncmp(".drectve", (char*)pSectionTable[i].Name, sizeof(pSectionTable[i].Name)) != 0)
 			continue;
 
 		char *pszLinkerOptions = (char *)(pbCoffData + pSectionTable[i].PointerToRawData);
@@ -204,4 +177,19 @@ void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, const vector<string>&vLinkerOp
 			}
 		}
 	}
+}
+
+BOOL MoveToNextMember(const BYTE* pbArchiveBase, const ULONGLONG& ullArchiveSize, ULONGLONG& ullOffset)
+{
+	//Skip current member
+	PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
+		(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbArchiveBase + ullOffset);
+	const BYTE * pbMemberContent = pbArchiveBase + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+	unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
+	ullOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+
+	//Skip padding
+	if (pbArchiveBase[ullOffset] == ARCHIVE_PAD)
+		ullOffset++;
+	return (ullOffset < ullArchiveSize);
 }
