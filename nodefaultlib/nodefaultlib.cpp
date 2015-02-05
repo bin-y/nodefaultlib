@@ -25,6 +25,70 @@ static const char* const ppszDefaultLibraryNames[] =
 
 #define DEFAULT_LIBRARY_NAME_NUM (sizeof(ppszDefaultLibraryNames) / sizeof(const char*))
 
+void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, vector<string>&vLinkerOptionToRemove)
+{
+	PIMAGE_FILE_HEADER pCoffHeader = (PIMAGE_FILE_HEADER)pbCoffData;
+	PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbCoffData + sizeof(IMAGE_FILE_HEADER));
+
+	//pecoff_v83 p12:Windows loader limits the number of sections to 96.
+	if (pCoffHeader->NumberOfSections > 96)
+		return;
+
+	for (WORD i = 0; i < pCoffHeader->NumberOfSections; i++)
+	{
+		//Find .drectve section
+		if (strcmp(".drectve", (char*)pSectionTable[i].Name) != 0)
+			continue;
+
+		char *pszLinkerOptions = (char *)(pbCoffData + pSectionTable[i].PointerToRawData);
+
+		for (DWORD j = 0; j < pSectionTable[i].SizeOfRawData; j++)
+		{
+			if (pszLinkerOptions[j] != '/')
+				continue;
+
+			for (auto iOptionToRemove = vLinkerOptionToRemove.begin();
+				iOptionToRemove != vLinkerOptionToRemove.end();
+				iOptionToRemove++)
+			{
+				auto nOptionLength = iOptionToRemove->length();
+				if (nOptionLength >(pSectionTable[i].SizeOfRawData - j))
+					continue;
+
+				if (_strnicmp(&pszLinkerOptions[j],
+					iOptionToRemove->c_str(),
+					nOptionLength
+					) != 0)
+					continue;
+
+
+				if ((j + nOptionLength) != pSectionTable[i].SizeOfRawData)
+				{
+					if (pszLinkerOptions[j + nOptionLength] != ' ')
+					{
+						//Skip if option not completely matched
+						continue;
+					}
+					else
+					{
+						//Deal with spaces between options
+						nOptionLength++;
+					}
+				}
+
+				printf("\tOld:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
+				memmove(&pszLinkerOptions[j],
+					&pszLinkerOptions[j + nOptionLength],
+					pSectionTable[i].SizeOfRawData - j - nOptionLength
+					);
+				pSectionTable[i].SizeOfRawData -= nOptionLength;
+				printf("\tNew:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
+				break;
+			}
+		}
+	}
+}
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	if (argc != 2)
@@ -116,6 +180,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		if (ulLastCoffOffset == ulCoffOffset)
 			continue;
 		ulLastCoffOffset = ulCoffOffset;
+
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
 			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbLibraryFileData + ulCoffOffset);
 		PBYTE pbMemberContent = pbLibraryFileData + ulCoffOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
@@ -132,67 +197,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			char * pszEndOfName = strchr((char*)pMemberHeader->Name, '/');
 			printf("%.*s\n", pszEndOfName - (char*)pMemberHeader->Name, pMemberHeader->Name);
 		}
-
-		PIMAGE_FILE_HEADER pCoffHeader = (PIMAGE_FILE_HEADER)pbMemberContent;
-		PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbMemberContent + sizeof(IMAGE_FILE_HEADER));
-
-		//pecoff_v83 p12:Windows loader limits the number of sections to 96.
-		if (pCoffHeader->NumberOfSections > 96)
-			continue;
-
-		for (WORD j = 0; j < pCoffHeader->NumberOfSections; j++)
-		{
-			//Find .drectve section
-			if (strcmp(".drectve", (char*)pSectionTable[j].Name) != 0)
-				continue;
-
-			char *pszLinkerOptions = (char *)(pbMemberContent + pSectionTable[j].PointerToRawData);
-
-			for (DWORD k = 0; k < pSectionTable[j].SizeOfRawData; k++)
-			{
-				if (pszLinkerOptions[k] != '/')
-					continue;
-
-				for (auto iOptionToRemove = vLinkerOptionToRemove.begin();
-					iOptionToRemove != vLinkerOptionToRemove.end();
-					iOptionToRemove++)
-				{
-					auto nOptionLength = iOptionToRemove->length();
-					if (nOptionLength > (pSectionTable[j].SizeOfRawData - k))
-						continue;
-
-					if (_strnicmp(&pszLinkerOptions[k],
-						iOptionToRemove->c_str(),
-						nOptionLength
-						) != 0)
-						continue;
-
-
-					if ((k + nOptionLength) != pSectionTable[j].SizeOfRawData)
-					{
-						if (pszLinkerOptions[k + nOptionLength] != ' ')
-						{
-							//Skip if option not completely matched
-							continue;
-						}
-						else
-						{
-							//Deal with spaces between options
-							nOptionLength++;
-						}
-					}
-
-					printf("\tOld:%.*s\n", pSectionTable[j].SizeOfRawData, pszLinkerOptions);
-					memmove(&pszLinkerOptions[k],
-						&pszLinkerOptions[k + nOptionLength],
-						pSectionTable[j].SizeOfRawData - k - nOptionLength
-						);
-					pSectionTable[j].SizeOfRawData -= nOptionLength;
-					printf("\tNew:%.*s\n", pSectionTable[j].SizeOfRawData, pszLinkerOptions);
-					break;
-				}
-			}
-		}
+		RemoveLinkerOptionFromCoff(pbMemberContent, vLinkerOptionToRemove);
 	}
 
 	return 0;
