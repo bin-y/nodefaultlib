@@ -36,11 +36,11 @@ int _tmain(int argc, _TCHAR* argv[])
 		return 0;
 	}
 
-	CAtlFile LibraryFile;
-	LibraryFile.Create(argv[1], GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING);
-	CAtlFileMappingBase LibraryFileMap;
-	LibraryFileMap.MapFile(LibraryFile, 0, 0, PAGE_READWRITE, FILE_MAP_READ | FILE_MAP_WRITE);
-	BYTE *pbLibraryFileData = (BYTE *)LibraryFileMap.GetData();
+	CAtlFile TargetFile;
+	TargetFile.Create(argv[1], GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING);
+	CAtlFileMappingBase TargetFileMap;
+	TargetFileMap.MapFile(TargetFile, 0, 0, PAGE_READWRITE, FILE_MAP_READ | FILE_MAP_WRITE);
+	BYTE *pbFileData = (BYTE *)TargetFileMap.GetData();
 
 	vector<string> vLinkerOptionToRemove;
 
@@ -60,9 +60,10 @@ int _tmain(int argc, _TCHAR* argv[])
 		vLinkerOptionToRemove.push_back(szLinkerParameter);
 	}
 
-	if (memcmp(pbLibraryFileData, IMAGE_ARCHIVE_START, IMAGE_ARCHIVE_START_SIZE) != 0)
+	if (memcmp(pbFileData, IMAGE_ARCHIVE_START, IMAGE_ARCHIVE_START_SIZE) != 0)
 	{
-		_tperror(_T("Not a lib file.\n"));
+		_tprintf(_T("Not a lib file.\n"));
+		RemoveLinkerOptionFromCoff(pbFileData, vLinkerOptionToRemove);
 		return 0;
 	}
 
@@ -73,8 +74,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	//Process First Linker Member
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbLibraryFileData + uiOffset);
-		PBYTE pbMemberContent = pbLibraryFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + uiOffset);
+		PBYTE pbMemberContent = pbFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
@@ -83,27 +84,27 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	//Skip padding
-	if (pbLibraryFileData[uiOffset] == ARCHIVE_PAD)
+	if (pbFileData[uiOffset] == ARCHIVE_PAD)
 		uiOffset++;
 
 	//Skip Second Linker Member
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbLibraryFileData + uiOffset);
-		PBYTE pbMemberContent = pbLibraryFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + uiOffset);
+		PBYTE pbMemberContent = pbFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 	}
 
 	//Skip padding
-	if (pbLibraryFileData[uiOffset] == ARCHIVE_PAD)
+	if (pbFileData[uiOffset] == ARCHIVE_PAD)
 		uiOffset++;
 
 	//Process Longnames Member
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbLibraryFileData + uiOffset);
-		PBYTE pbMemberContent = pbLibraryFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + uiOffset);
+		PBYTE pbMemberContent = pbFileData + uiOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 		unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 		uiOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
@@ -120,8 +121,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		ulLastCoffOffset = ulCoffOffset;
 
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbLibraryFileData + ulCoffOffset);
-		PBYTE pbMemberContent = pbLibraryFileData + ulCoffOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ulCoffOffset);
+		PBYTE pbMemberContent = pbFileData + ulCoffOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		//Print OBJ file name
 		if (pMemberHeader->Name[0] == '/')
