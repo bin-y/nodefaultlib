@@ -36,9 +36,18 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	CAtlFile TargetFile;
-	TargetFile.Create(argv[1], GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING);
+	if (FAILED(TargetFile.Create(argv[1], GENERIC_READ | GENERIC_WRITE, 0, OPEN_EXISTING)))
+	{
+		_ftprintf(stderr, _T("Unable to open file %s.\n"), argv[1]);
+		return 0;
+	}
+
 	CAtlFileMappingBase TargetFileMap;
-	TargetFileMap.MapFile(TargetFile, 0, 0, PAGE_READWRITE, FILE_MAP_READ | FILE_MAP_WRITE);
+	if (FAILED(TargetFileMap.MapFile(TargetFile, 0, 0, PAGE_READWRITE, FILE_MAP_READ | FILE_MAP_WRITE)))
+	{
+		_ftprintf(stderr, _T("Unable to map file %s.\n"), argv[1]);
+		return 0;
+	}
 	BYTE *pbFileData = (BYTE *)TargetFileMap.GetData();
 	
 	vector<string> vLinkerOptionToRemove;
