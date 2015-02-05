@@ -78,9 +78,7 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	//Process Longnames Member
 	{
-		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
-		PBYTE pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+		BYTE* pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		pszLongnames = (char *)pbMemberContent;
 	}
@@ -90,7 +88,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
 			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
-		PBYTE pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+		BYTE* pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		//Print OBJ file name
 		if (pMemberHeader->Name[0] == '/')
@@ -187,7 +185,10 @@ BOOL MoveToNextMember(const BYTE* pbArchiveBase, const ULONGLONG& ullArchiveSize
 	ullOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 	//Skip padding
-	if (pbArchiveBase[ullOffset] == ARCHIVE_PAD)
-		ullOffset++;
+	if (ullOffset < ullArchiveSize)
+	{
+		if (pbArchiveBase[ullOffset] == ARCHIVE_PAD)
+			ullOffset++;
+	}
 	return (ullOffset < ullArchiveSize);
 }
