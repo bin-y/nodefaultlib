@@ -25,69 +25,7 @@ static const char* const ppszDefaultLibraryNames[] =
 
 #define DEFAULT_LIBRARY_NAME_NUM (sizeof(ppszDefaultLibraryNames) / sizeof(const char*))
 
-void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, vector<string>&vLinkerOptionToRemove)
-{
-	PIMAGE_FILE_HEADER pCoffHeader = (PIMAGE_FILE_HEADER)pbCoffData;
-	PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbCoffData + sizeof(IMAGE_FILE_HEADER));
-
-	//pecoff_v83 p12:Windows loader limits the number of sections to 96.
-	if (pCoffHeader->NumberOfSections > 96)
-		return;
-
-	for (WORD i = 0; i < pCoffHeader->NumberOfSections; i++)
-	{
-		//Find .drectve section
-		if (strcmp(".drectve", (char*)pSectionTable[i].Name) != 0)
-			continue;
-
-		char *pszLinkerOptions = (char *)(pbCoffData + pSectionTable[i].PointerToRawData);
-
-		for (DWORD j = 0; j < pSectionTable[i].SizeOfRawData; j++)
-		{
-			if (pszLinkerOptions[j] != '/')
-				continue;
-
-			for (auto iOptionToRemove = vLinkerOptionToRemove.begin();
-				iOptionToRemove != vLinkerOptionToRemove.end();
-				iOptionToRemove++)
-			{
-				auto nOptionLength = iOptionToRemove->length();
-				if (nOptionLength >(pSectionTable[i].SizeOfRawData - j))
-					continue;
-
-				if (_strnicmp(&pszLinkerOptions[j],
-					iOptionToRemove->c_str(),
-					nOptionLength
-					) != 0)
-					continue;
-
-
-				if ((j + nOptionLength) != pSectionTable[i].SizeOfRawData)
-				{
-					if (pszLinkerOptions[j + nOptionLength] != ' ')
-					{
-						//Skip if option not completely matched
-						continue;
-					}
-					else
-					{
-						//Deal with spaces between options
-						nOptionLength++;
-					}
-				}
-
-				printf("\tOld:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
-				memmove(&pszLinkerOptions[j],
-					&pszLinkerOptions[j + nOptionLength],
-					pSectionTable[i].SizeOfRawData - j - nOptionLength
-					);
-				pSectionTable[i].SizeOfRawData -= nOptionLength;
-				printf("\tNew:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
-				break;
-			}
-		}
-	}
-}
+static void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, const vector<string>&vLinkerOptionToRemove);
 
 int _tmain(int argc, _TCHAR* argv[])
 {
@@ -203,3 +141,66 @@ int _tmain(int argc, _TCHAR* argv[])
 	return 0;
 }
 
+void RemoveLinkerOptionFromCoff(PBYTE pbCoffData, const vector<string>&vLinkerOptionToRemove)
+{
+	PIMAGE_FILE_HEADER pCoffHeader = (PIMAGE_FILE_HEADER)pbCoffData;
+	PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbCoffData + sizeof(IMAGE_FILE_HEADER));
+
+	//pecoff_v83 p12:Windows loader limits the number of sections to 96.
+	if (pCoffHeader->NumberOfSections > 96)
+		return;
+
+	for (WORD i = 0; i < pCoffHeader->NumberOfSections; i++)
+	{
+		//Find .drectve section
+		if (strcmp(".drectve", (char*)pSectionTable[i].Name) != 0)
+			continue;
+
+		char *pszLinkerOptions = (char *)(pbCoffData + pSectionTable[i].PointerToRawData);
+
+		for (DWORD j = 0; j < pSectionTable[i].SizeOfRawData; j++)
+		{
+			if (pszLinkerOptions[j] != '/')
+				continue;
+
+			for (auto iOptionToRemove = vLinkerOptionToRemove.begin();
+				iOptionToRemove != vLinkerOptionToRemove.end();
+				iOptionToRemove++)
+			{
+				auto nOptionLength = iOptionToRemove->length();
+				if (nOptionLength >(pSectionTable[i].SizeOfRawData - j))
+					continue;
+
+				if (_strnicmp(&pszLinkerOptions[j],
+					iOptionToRemove->c_str(),
+					nOptionLength
+					) != 0)
+					continue;
+
+
+				if ((j + nOptionLength) != pSectionTable[i].SizeOfRawData)
+				{
+					if (pszLinkerOptions[j + nOptionLength] != ' ')
+					{
+						//Skip if option not completely matched
+						continue;
+					}
+					else
+					{
+						//Deal with spaces between options
+						nOptionLength++;
+					}
+				}
+
+				printf("\tOld:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
+				memmove(&pszLinkerOptions[j],
+					&pszLinkerOptions[j + nOptionLength],
+					pSectionTable[i].SizeOfRawData - j - nOptionLength
+					);
+				pSectionTable[i].SizeOfRawData -= nOptionLength;
+				printf("\tNew:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
+				break;
+			}
+		}
+	}
+}
