@@ -99,6 +99,14 @@ int _tmain(int argc, _TCHAR* argv[])
 			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
 		BYTE* pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
+		//Skip short import library member
+		ANON_OBJECT_HEADER* pImportHeader = (ANON_OBJECT_HEADER*)pbMemberContent;
+		if (pImportHeader->Sig1 == IMAGE_FILE_MACHINE_UNKNOWN
+			&& pImportHeader->Sig2 == 0xFFFF)
+		{
+			continue;
+		}
+
 		//Print OBJ file name
 		if (pMemberHeader->Name[0] == '/')
 		{
