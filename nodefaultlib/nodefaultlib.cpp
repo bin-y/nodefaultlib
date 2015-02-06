@@ -120,10 +120,6 @@ int _tmain(int argc, _TCHAR* argv[])
 			printf("%.*s\n", pszEndOfName - (char*)pMemberHeader->Name, pMemberHeader->Name);
 		}
 		RemoveLinkerOptionFromCoff(pbMemberContent, vLinkerOptionToRemove);
-
-		//Skip padding
-		if (pbFileData[ullOffset] == ARCHIVE_PAD)
-			ullOffset++;
 	}
 
 	return 0;
