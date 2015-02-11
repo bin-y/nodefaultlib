@@ -82,7 +82,16 @@ int _tmain(int argc, _TCHAR* argv[])
 	char *pszLongnames;
 	//Skip First Linker Member
 	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
-	//Skip Second Linker Member
+    unsigned long ulNumberOfMembers;
+    unsigned long* pulMemberOffsetTable;
+	//Process Second Linker Member
+    {
+        auto memberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+
+        ulNumberOfMembers = *(unsigned long*)(memberContent);
+        pulMemberOffsetTable = (unsigned long*)(memberContent + 4);
+    }
+
 	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
 
 	//Process Longnames Member
@@ -93,11 +102,11 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	//Process OBJ files
-	while (MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset))
+    for (unsigned long i = 0; i < ulNumberOfMembers; i++)
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + ullOffset);
-		BYTE* pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+            (PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + pulMemberOffsetTable[i]);
+        BYTE* pbMemberContent = pbFileData + pulMemberOffsetTable[i] + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		//Skip short import library member
 		IMPORT_OBJECT_HEADER * pImportHeader = (IMPORT_OBJECT_HEADER*)pbMemberContent;
