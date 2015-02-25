@@ -11,7 +11,7 @@ using std::string;
 
 #define ARCHIVE_PAD (IMAGE_ARCHIVE_PAD[0])
 
-static const char* const ppszDefaultLibraryNames[] =
+static const char* const g_ppszDefaultLibraryNames[] =
 {
 	"libc",
 	"libcmt",
@@ -21,7 +21,7 @@ static const char* const ppszDefaultLibraryNames[] =
 	"msvcrtd"
 };
 
-#define DEFAULT_LIBRARY_NAME_NUM (sizeof(ppszDefaultLibraryNames) / sizeof(const char*))
+#define DEFAULT_LIBRARY_NAME_NUM (sizeof(g_ppszDefaultLibraryNames) / sizeof(const char*))
 
 static __inline BOOL IsCommonObject(const BYTE* pbObjectData);
 static __inline BOOL IsImportObject(const BYTE* pbObjectData);
@@ -59,20 +59,20 @@ int _tmain(int argc, _TCHAR* argv[])
 	for (int i = 0; i < DEFAULT_LIBRARY_NAME_NUM; i++)
 	{
 		char szLinkerParameter[32];
-		sprintf_s(szLinkerParameter, "/DEFAULTLIB:%s", ppszDefaultLibraryNames[i]);
+		sprintf_s(szLinkerParameter, "/DEFAULTLIB:%s", g_ppszDefaultLibraryNames[i]);
 		vLinkerOptionToRemove.push_back(szLinkerParameter);
 
-		sprintf_s(szLinkerParameter, "/DEFAULTLIB:\"%s\"", ppszDefaultLibraryNames[i]);
+		sprintf_s(szLinkerParameter, "/DEFAULTLIB:\"%s\"", g_ppszDefaultLibraryNames[i]);
 		vLinkerOptionToRemove.push_back(szLinkerParameter);
 
-		sprintf_s(szLinkerParameter, "/DEFAULTLIB:%s.lib", ppszDefaultLibraryNames[i]);
+		sprintf_s(szLinkerParameter, "/DEFAULTLIB:%s.lib", g_ppszDefaultLibraryNames[i]);
 		vLinkerOptionToRemove.push_back(szLinkerParameter);
 
-		sprintf_s(szLinkerParameter, "/DEFAULTLIB:\"%s.lib\"", ppszDefaultLibraryNames[i]);
+		sprintf_s(szLinkerParameter, "/DEFAULTLIB:\"%s.lib\"", g_ppszDefaultLibraryNames[i]);
 		vLinkerOptionToRemove.push_back(szLinkerParameter);
 	}
 
-	vector<string> vComplierOptionToRemove = 
+	static const vector<string> vComplierOptionToRemove = 
 	{
 		"-MT", "-MD", "-ML"
 	};
@@ -248,14 +248,14 @@ void RemoveLinkerOptionFromCommonObject(BYTE* pbObjectData, const vector<string>
 void RemoveComplierOptionFromAnonymousObject(BYTE* pbObjectData, const vector<string>& vComplierOptionToRemove)
 {
 	ANON_OBJECT_HEADER* pAnonymousObjectHeader = (ANON_OBJECT_HEADER*)pbObjectData;
-	BYTE* pAnonymousObjectContent;
+	BYTE* pbAnonymousObjectContent;
 	if (pAnonymousObjectHeader->Version == 1)
 	{
-		pAnonymousObjectContent = pbObjectData + sizeof(ANON_OBJECT_HEADER);
+		pbAnonymousObjectContent = pbObjectData + sizeof(ANON_OBJECT_HEADER);
 
 		// COFF object struct inside anonymous object 
-		PIMAGE_FILE_HEADER pCommonObjectHeader = (PIMAGE_FILE_HEADER)pAnonymousObjectContent;
-		PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pAnonymousObjectContent + sizeof(IMAGE_FILE_HEADER));
+		PIMAGE_FILE_HEADER pCommonObjectHeader = (PIMAGE_FILE_HEADER)pbAnonymousObjectContent;
+		PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbAnonymousObjectContent + sizeof(IMAGE_FILE_HEADER));
 
 		for (WORD i = 0; i < pCommonObjectHeader->NumberOfSections; i++)
 		{
@@ -263,7 +263,7 @@ void RemoveComplierOptionFromAnonymousObject(BYTE* pbObjectData, const vector<st
 			if (strncmp(".cil$fg", (char*)pSectionTable[i].Name, sizeof(pSectionTable[i].Name)) != 0)
 				continue;
 			
-			BYTE* pSectionData = pAnonymousObjectContent + pSectionTable[i].PointerToRawData;
+			BYTE* pSectionData = pbAnonymousObjectContent + pSectionTable[i].PointerToRawData;
 			unsigned long* pulOptionCount = (unsigned long*)pSectionData;
 			char *pszComplierOption = (char *)(pSectionData + 4);
 
