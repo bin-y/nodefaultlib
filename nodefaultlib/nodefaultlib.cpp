@@ -23,7 +23,11 @@ static const char* const ppszDefaultLibraryNames[] =
 
 #define DEFAULT_LIBRARY_NAME_NUM (sizeof(ppszDefaultLibraryNames) / sizeof(const char*))
 
-static void RemoveLinkerOptionFromCoff(BYTE* pbCoffData, const vector<string>& vLinkerOptionToRemove);
+static __inline BOOL IsCommonObject(const BYTE* pbObjectData);
+static __inline BOOL IsImportObject(const BYTE* pbObjectData);
+static __inline BOOL IsAnonymousObject(const BYTE* pbObjectData);
+static void RemoveLinkerOptionFromCommonObject(BYTE* pbCoffData, const vector<string>& vLinkerOptionToRemove);
+static void RemoveComplierOptionFromAnonymousObject(BYTE* pbCoffData, const vector<string>& vComplierOptionToRemove);
 static BOOL MoveToNextMember(const BYTE* pbArchiveBase, const ULONGLONG& ullArchiveSize, ULONGLONG& ullOffset);
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -68,10 +72,16 @@ int _tmain(int argc, _TCHAR* argv[])
 		vLinkerOptionToRemove.push_back(szLinkerParameter);
 	}
 
+	vector<string> vComplierOptionToRemove = 
+	{
+		"-MT", "-MD", "-ML"
+	};
+
+
 	if (memcmp(pbFileData, IMAGE_ARCHIVE_START, IMAGE_ARCHIVE_START_SIZE) != 0)
 	{
 		_tprintf(_T("Not a lib file.\n"));
-		RemoveLinkerOptionFromCoff(pbFileData, vLinkerOptionToRemove);
+		RemoveLinkerOptionFromCommonObject(pbFileData, vLinkerOptionToRemove);
 		return 0;
 	}
 
@@ -80,46 +90,45 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	ULONGLONG ullOffset = IMAGE_ARCHIVE_START_SIZE;
 	char *pszLongnames;
-	//Skip First Linker Member
-	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
-    unsigned long ulNumberOfMembers;
-    unsigned long* pulMemberOffsetTable;
-	//Process Second Linker Member
-    {
-        auto memberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
-
-        ulNumberOfMembers = *(unsigned long*)(memberContent);
-        pulMemberOffsetTable = (unsigned long*)(memberContent + 4);
-    }
-
+	// Skip First Linker Member
 	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
 
-	//Process Longnames Member
+	unsigned long ulNumberOfMembers;
+	unsigned long* pulMemberOffsetTable;
+	// Process Second Linker Member
+	{
+		auto memberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+
+		ulNumberOfMembers = *(unsigned long*)(memberContent);
+		pulMemberOffsetTable = (unsigned long*)(memberContent + 4);
+	}
+	MoveToNextMember(pbFileData, ullArchiveFileSize, ullOffset);
+
+	// Process Longnames Member
 	{
 		BYTE* pbMemberContent = pbFileData + ullOffset + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
 		pszLongnames = (char *)pbMemberContent;
 	}
 
-	//Process OBJ files
-    for (unsigned long i = 0; i < ulNumberOfMembers; i++)
+	// Process OBJ files
+	for (unsigned long i = 0; i < ulNumberOfMembers; i++)
 	{
 		PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
-            (PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + pulMemberOffsetTable[i]);
-        BYTE* pbMemberContent = pbFileData + pulMemberOffsetTable[i] + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
+			(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbFileData + pulMemberOffsetTable[i]);
+		BYTE* pbMemberContent = pbFileData + pulMemberOffsetTable[i] + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
-		//Skip short import library member
-		IMPORT_OBJECT_HEADER * pImportHeader = (IMPORT_OBJECT_HEADER*)pbMemberContent;
-		if (pImportHeader->Sig1 == IMAGE_FILE_MACHINE_UNKNOWN
-			&& pImportHeader->Sig2 == IMPORT_OBJECT_HDR_SIG2)
+		// Skip import object
+		
+		if (IsImportObject(pbMemberContent))
 		{
 			continue;
 		}
 
-		//Print OBJ file name
+		// Print OBJ file name
 		if (pMemberHeader->Name[0] == '/')
 		{
-			//Name = /n, The name of the archive member is located at offset n within the longnames member
+			// Name = /n, The name of the archive member is located at offset n within the longnames member
 			unsigned __int64 iNameOffset = (unsigned)_atoi64((char*)&pMemberHeader->Name[1]);
 			printf("%s\n", pszLongnames + iNameOffset);
 		}
@@ -128,28 +137,66 @@ int _tmain(int argc, _TCHAR* argv[])
 			char * pszEndOfName = strchr((char*)pMemberHeader->Name, '/');
 			printf("%.*s\n", pszEndOfName - (char*)pMemberHeader->Name, pMemberHeader->Name);
 		}
-		RemoveLinkerOptionFromCoff(pbMemberContent, vLinkerOptionToRemove);
+		if (IsCommonObject(pbMemberContent))
+		{
+			RemoveLinkerOptionFromCommonObject(pbMemberContent, vLinkerOptionToRemove);
+		}
+		else
+		{
+			RemoveComplierOptionFromAnonymousObject(pbMemberContent, vComplierOptionToRemove);
+		}
 	}
 
 	return 0;
 }
 
-void RemoveLinkerOptionFromCoff(BYTE* pbCoffData, const vector<string>& vLinkerOptionToRemove)
+BOOL IsCommonObject(const BYTE* pbObjectData)
 {
-	PIMAGE_FILE_HEADER pCoffHeader = (PIMAGE_FILE_HEADER)pbCoffData;
-	PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbCoffData + sizeof(IMAGE_FILE_HEADER));
+	IMPORT_OBJECT_HEADER * pImportHeader = (IMPORT_OBJECT_HEADER*)pbObjectData;
+	if (pImportHeader->Sig1 == IMAGE_FILE_MACHINE_UNKNOWN
+		&& pImportHeader->Sig2 == IMPORT_OBJECT_HDR_SIG2)
+	{
+		return FALSE;
+	}
+	return TRUE;
+}
 
-	//pecoff_v83 p12:Windows loader limits the number of sections to 96.
-	if (pCoffHeader->NumberOfSections > 96)
+BOOL IsImportObject(const BYTE* pbObjectData)
+{
+	if (!IsCommonObject(pbObjectData))
+	{
+		IMPORT_OBJECT_HEADER * pImportHeader = (IMPORT_OBJECT_HEADER*)pbObjectData;
+		return (pImportHeader->Version == 0);
+	}
+	return FALSE;
+}
+
+BOOL IsAnonymousObject(const BYTE* pbObjectData)
+{
+	if (!IsCommonObject(pbObjectData))
+	{
+		IMPORT_OBJECT_HEADER * pImportHeader = (IMPORT_OBJECT_HEADER*)pbObjectData;
+		return (pImportHeader->Version >= 1);
+	}
+	return FALSE;
+}
+
+void RemoveLinkerOptionFromCommonObject(BYTE* pbObjectData, const vector<string>& vLinkerOptionToRemove)
+{
+	PIMAGE_FILE_HEADER pCommonObjectHeader = (PIMAGE_FILE_HEADER)pbObjectData;
+	PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pbObjectData + sizeof(IMAGE_FILE_HEADER));
+
+	// pecoff_v83 p12:Windows loader limits the number of sections to 96.
+	if (pCommonObjectHeader->NumberOfSections > 96)
 		return;
 
-	for (WORD i = 0; i < pCoffHeader->NumberOfSections; i++)
+	for (WORD i = 0; i < pCommonObjectHeader->NumberOfSections; i++)
 	{
-		//Find .drectve section
+		// Find .drectve section
 		if (strncmp(".drectve", (char*)pSectionTable[i].Name, sizeof(pSectionTable[i].Name)) != 0)
 			continue;
 
-		char *pszLinkerOptions = (char *)(pbCoffData + pSectionTable[i].PointerToRawData);
+		char *pszLinkerOptions = (char *)(pbObjectData + pSectionTable[i].PointerToRawData);
 
 		for (DWORD j = 0; j < pSectionTable[i].SizeOfRawData; j++)
 		{
@@ -175,38 +222,105 @@ void RemoveLinkerOptionFromCoff(BYTE* pbCoffData, const vector<string>& vLinkerO
 				{
 					if (pszLinkerOptions[j + nOptionLength] != ' ')
 					{
-						//Skip if option not completely matched
+						// Skip if option not completely matched
 						continue;
 					}
 					else
 					{
-						//Deal with spaces between options
+						// Deal with spaces between options
 						nOptionLength++;
 					}
 				}
 
-				printf("\tOld:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
+				printf("\tRemove:%s\n", iOptionToRemove->c_str());
 				memmove(&pszLinkerOptions[j],
 					&pszLinkerOptions[j + nOptionLength],
 					pSectionTable[i].SizeOfRawData - j - nOptionLength
 					);
 				pSectionTable[i].SizeOfRawData -= nOptionLength;
-				printf("\tNew:%.*s\n", pSectionTable[i].SizeOfRawData, pszLinkerOptions);
 				break;
 			}
 		}
 	}
 }
 
+// XXX: ANON_OBJECT_HEADER is undocumented, following code is EXPERIMENTAL!!
+void RemoveComplierOptionFromAnonymousObject(BYTE* pbObjectData, const vector<string>& vComplierOptionToRemove)
+{
+	ANON_OBJECT_HEADER* pAnonymousObjectHeader = (ANON_OBJECT_HEADER*)pbObjectData;
+	BYTE* pAnonymousObjectContent;
+	if (pAnonymousObjectHeader->Version == 1)
+	{
+		pAnonymousObjectContent = pbObjectData + sizeof(ANON_OBJECT_HEADER);
+
+		// COFF object struct inside anonymous object 
+		PIMAGE_FILE_HEADER pCommonObjectHeader = (PIMAGE_FILE_HEADER)pAnonymousObjectContent;
+		PIMAGE_SECTION_HEADER pSectionTable = (PIMAGE_SECTION_HEADER)(pAnonymousObjectContent + sizeof(IMAGE_FILE_HEADER));
+
+		for (WORD i = 0; i < pCommonObjectHeader->NumberOfSections; i++)
+		{
+			// Find .cil$fg section
+			if (strncmp(".cil$fg", (char*)pSectionTable[i].Name, sizeof(pSectionTable[i].Name)) != 0)
+				continue;
+			
+			BYTE* pSectionData = pAnonymousObjectContent + pSectionTable[i].PointerToRawData;
+			unsigned long* pulOptionCount = (unsigned long*)pSectionData;
+			char *pszComplierOption = (char *)(pSectionData + 4);
+
+			for (unsigned long j = 0; j < *pulOptionCount; j++)
+			{
+				BOOL bRemove = FALSE;
+				size_t nOptionLength;
+				for (auto iOptionToRemove = vComplierOptionToRemove.begin();
+					iOptionToRemove != vComplierOptionToRemove.end();
+					iOptionToRemove++)
+				{
+					nOptionLength = iOptionToRemove->length();
+
+					if (_stricmp(pszComplierOption,
+						iOptionToRemove->c_str()
+						) != 0)
+						continue;
+
+					// Add the size of NULL terminator
+					nOptionLength += 1;
+					bRemove = TRUE;
+					break;
+				}
+
+				if (bRemove)
+				{
+					printf("\tRemove:%s\n", pszComplierOption);
+					memmove(pszComplierOption,
+						pszComplierOption + nOptionLength,
+						pSectionTable[i].SizeOfRawData - nOptionLength
+						);
+					pSectionTable[i].SizeOfRawData -= nOptionLength;
+					(*pulOptionCount)--;
+				}
+				else
+				{
+					pszComplierOption += strlen(pszComplierOption) + 1;
+				}
+			}
+			break;
+		}
+	}
+	else
+	{
+		//FIXME: Haven't ever seen undocumented ANON_OBJECT_HEADER_V2 object
+	}
+}
+
 BOOL MoveToNextMember(const BYTE* pbArchiveBase, const ULONGLONG& ullArchiveSize, ULONGLONG& ullOffset)
 {
-	//Skip current member
+	// Skip current member
 	PIMAGE_ARCHIVE_MEMBER_HEADER pMemberHeader =
 		(PIMAGE_ARCHIVE_MEMBER_HEADER)(pbArchiveBase + ullOffset);
 	unsigned __int64 iMemberSize = (unsigned)_atoi64((char*)pMemberHeader->Size);
 	ullOffset += iMemberSize + sizeof(IMAGE_ARCHIVE_MEMBER_HEADER);
 
-	//Skip padding
+	// Skip padding
 	if (ullOffset < ullArchiveSize)
 	{
 		if (pbArchiveBase[ullOffset] == ARCHIVE_PAD)
